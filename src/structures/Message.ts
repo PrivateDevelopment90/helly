@@ -1,182 +1,230 @@
-import { APIGuildMember, APIMessage, MessageType } from 'discord-api-types/v10';
+import {
+  APIGuildMember,
+  APIMessage,
+  APIMessageReference,
+  MessageType,
+} from 'discord-api-types/v10';
 import { EmbedBuilder } from '../builders/Embed';
 import type { Client } from '../client/Client';
 import { Parsers } from '../utils/transformers/Parsers';
 import { BaseStructure } from './BaseStructure';
 import type { MessageOptions } from './Channel';
 import { GuildMember } from './GuildMember';
+import { MessageReaction } from './MessageReaction';
 
 export type MessageData = Partial<Message>;
 
 class Message extends BaseStructure {
   /** Raw message data */
-  data: APIMessage;
+  private data: APIMessage;
+
   constructor(client: Client, data: APIMessage) {
     super(client);
-    this.parseData(data);
+    this.data = data;
   }
 
   /** The author of the message */
   get author() {
-    return this.client.users.cache.get(this.data.author.id) ?? this.client.users.updateOrSet(this.data.author.id, this.data.author);
+    return (
+      this.client.users.cache.get(this.data.author.id) ??
+      this.client.users.updateOrSet(this.data.author.id, this.data.author)
+    );
   }
 
-  /** The Id of the application of the interaction that sent this message, if any */
+  /** Application ID of the interaction (if any) */
   get applicationId() {
     return this.data.application_id;
   }
 
-  /** The message's content */
+  /** Message content */
   get content() {
-    return this.data.content;
+    return this.data.content || '';
   }
 
-  /** The components of this message */
+  /** Message components (e.g., buttons, select menus) */
   get components() {
     return this.data.components?.map(c => Parsers.messageComponents(c)) ?? [];
   }
 
-  /** The message's Id */
+  /** Message ID */
   get id() {
     return this.data.id;
   }
 
-  /** Whether or not this message is pinned */
+  /** Whether the message is pinned */
   get pinned() {
-    return this.data.pinned;
+    return this.data.pinned ?? false;
   }
 
-  /** Whether or not the message was Text-To-Speech */
+  /** Whether the message was sent as TTS */
   get tts() {
-    return this.data.tts;
+    return this.data.tts ?? false;
   }
 
-  /** A random number or string used for checking message delivery */
+  /** Message nonce */
   get nonce() {
     return this.data.nonce;
   }
 
-  /* A list of embeds in the message - e.g. YouTube Player */
+  /** Array of embeds in the message */
   get embeds() {
     return this.data.embeds.map(e => new EmbedBuilder(e));
   }
 
-  /** The {@link Guild} that the message belongs to */
+  /** The guild this message belongs to */
   get guild() {
-    return !this.guildId ? undefined : this.client.caches.guilds.get(this.guildId) ?? this.channel?.guild;
+    return this.guildId
+      ? this.client.guilds.cache.get(this.guildId) ?? this.channel?.guild
+      : undefined;
   }
 
-  /** The {@link Channel} that the message belongs to */
+  /** The channel this message belongs to */
   get channel() {
-    return !this.channelId ? undefined : this.client.caches.channels.get(this.channelId);
+    return this.channelId
+      ? this.client.channels.cache.get(this.channelId)
+      : undefined;
   }
 
-  /** The URL to jump to this message */
+  /** Jump-to message URL */
   get url() {
     return `https://discord.com/channels/${this.guildId ?? '@me'}/${this.channelId}/${this.id}`;
   }
 
   /** Message reference data */
   get messageReference() {
-    return Parsers.messageReference(this.data.message_reference);
+    return this.data.message_reference as APIMessageReference;
   }
 
-  /** Whether or not this message was sent by Discord, not actually a user (e.g. pin notifications) */
+  /** Whether the message is a system message */
   get system() {
-    return ![MessageType.Default, MessageType.Reply, MessageType.ChatInputCommand, MessageType.ContextMenuCommand].includes(this.data.type);
+    return ![
+      MessageType.Default,
+      MessageType.Reply,
+      MessageType.ChatInputCommand,
+      MessageType.ContextMenuCommand,
+    ].includes(this.data.type);
   }
 
-  /** The type of the message */
+  /** Message type as a string */
   get type() {
     return MessageType[this.data.type];
   }
 
-  /** The numeric {@link MessageType | type} of the channel */
+  /** Raw numeric message type */
   get rawType() {
     return this.data.type;
   }
 
-  /** The flags of the message */
+  /** Message flags */
   get flags() {
     return Parsers.messageFlags(this.data.flags);
   }
 
-  /** Represents the author of the message as a guild member. */
+  /** The guild member representation of the author */
   get member() {
     if (!this.guild) return undefined;
-    const finalMemberData = this.data.member ?? ({ user: this.data.author } as APIGuildMember);
-    return this.guild?.members.cache.get(this.author.id) ?? new GuildMember(this.client, finalMemberData, this.guild);
+
+    const memberData = this.data.member ?? ({ user: this.data.author } as APIGuildMember);
+    return (
+      this.guild.members.cache.get(this.author.id) ??
+      new GuildMember(this.client, memberData, this.guild)
+    );
   }
 
-  /** Theof the channel the message is in */
+  /** Channel ID of the message */
   get channelId() {
     return this.data.channel_id;
   }
 
-  /** Theof the guild the message is in */
+  /** Guild ID of the message */
   get guildId() {
     return this.data.guild_id ?? this.channel?.guild?.id;
   }
 
-  /** The id of the webhook that sent the message, if applicable */
+  /** Webhook ID if sent via webhook */
   get webhookId() {
     return this.data.webhook_id;
   }
 
+  /** Message mentions */
+  get mentions() {
+    return Parsers.messageMentions(this.data.mentions, this.client);
+  }
+
   /**
    * Replies to the message
-   * @param content The content of the message
-   * @example
-   * ```js
-   * const { EmbedBuilder } = require('helly');
-   * const embed = new EmbedBuilder().setTitle('Pong!')
-   * message.reply({ embeds: [embed] })
-   * ```
-   * @example
-   * ```js
-   * const { EmbedBuilder } = require('helly');
-   * const embed = new EmbedBuilder().setTitle('Pong!')
-   * message.reply({ content: 'Ping?', embeds: [embed] })
-   * ```
-   * @example
-   * ```js
-   * if (message.content === 'Hello!') message.reply('Hello!')
-   * ```
+   * @param content The content or options for the reply
    */
-  reply(content: MessageOptions) {
-    const parsedContent = typeof content === 'string' ? { content } : content;
+  reply(content: MessageOptions | string) {
+    const replyOptions = typeof content === 'string' ? { content } : content;
 
-    parsedContent.messageReference = {
+    replyOptions.messageReference = {
       messageId: this.id,
       channelId: this.channelId,
       guildId: this.guildId,
-      failIfNotExists: this.client.options.failIfNotExists,
+      failIfNotExists: this.client.options.failIfNotExists ?? false,
     };
 
-    return this.channel?.send(parsedContent);
+    return this.channel?.send(replyOptions);
   }
 
   /**
-   * Fetches the webhook used to create this message.
-   * @returns {Promise<?Webhook>}
+   * Edits the message
+   * @param content The new content or options for the edit
    */
-  fetchWebhook() {
-    if (!this.webhookId) throw new Error('This message was not sent by a Webhook.');
-    if (this.webhookId === this.applicationId) throw new Error('Webhook is part of an application.');
-    return this.client.fetchWebhook(this.webhookId);
+  edit(content: MessageOptions | string) {
+    const editOptions = typeof content === 'string' ? { content } : content;
+    return this.client.api.editMessage(this.channelId, this.id, editOptions);
   }
 
-  /** Returns the message content */
+  /**
+   * Deletes the message
+   * @param reason The reason for deletion
+   */
+  delete(reason?: string) {
+    return this.client.api.deleteMessage(this.channelId, this.id, reason);
+  }
+
+  /**
+   * Reacts to the message
+   * @param emoji The emoji to react with
+   */
+  react(emoji: string) {
+    return this.client.api.createReaction(this.channelId, this.id, emoji);
+  }
+
+  /**
+   * Removes a specific reaction from the message
+   * @param emoji The emoji to remove
+   * @param userId The ID of the user whose reaction to remove (default: current user)
+   */
+  removeReaction(emoji: string, userId?: string) {
+    return this.client.api.deleteReaction(
+      this.channelId,
+      this.id,
+      emoji,
+      userId ?? '@me'
+    );
+  }
+
+  /**
+   * Fetches the reactions for a specific emoji
+   * @param emoji The emoji to fetch reactions for
+   */
+  fetchReactions(emoji: string) {
+    return this.client.api.fetchReactions(this.channelId, this.id, emoji);
+  }
+
+  /** Returns the message content as a string */
   override toString() {
     return this.content;
   }
 
-  /** @private */
-  parseData(data: APIMessage) {
-    if (!data) return this;
+  /** Updates the message data */
+  private parseData(data: APIMessage) {
+    if (!data) return;
 
     this.data = { ...this.data, ...data };
-    return this;
   }
 }
 
